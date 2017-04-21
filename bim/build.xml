@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+
+<project xmlns='antlib:org.apache.tools.ant'>
+	<!-- prepare a temporary directory in which the war file is expanded and obfuscated -->
+	<tempfile property="unwar.dir" destdir="${java.io.tmpdir}" deleteonexit="yes"/>
+	<mkdir dir="${unwar.dir}"/>
+	<unwar src="BIMonitor-Web.war" dest="${unwar.dir}"/>
+
+	<!-- create a jar of webapp classes (required by yguard) for obfuscation -->
+	<jar destfile="${unwar.dir}/WEB-INF/lib/BIMonitor-Web.jar" whenempty="fail">
+		<zipfileset dir="${unwar.dir}/WEB-INF/classes"/>
+	</jar>
+	<delete dir="${unwar.dir}/WEB-INF/classes"/>
+
+	<!-- create a fileset of internal libraries to be obfuscated -->
+	<fileset dir="${unwar.dir}/WEB-INF/lib" id="internal.lib.set">
+		<include name="obiee-metrics.jar"/>
+		<!-- <include name="myLibrary.jar"/>
+		<include name="myOtherLibrary.jar"/> -->
+	</fileset>
+
+	<!-- move the internal libraries to a temporary directory and make a fileset out of them -->
+	<tempfile property="obfuscation.dir" destDir="${java.io.tmpdir}" deleteonexit="yes"/>
+	<mkdir dir="${obfuscation.dir}"/>
+	<move todir="${obfuscation.dir}">
+		<fileset refid="internal.lib.set"/>
+	</move>
+
+	<!-- create a jar of web.xml (required by yguard) for obfuscation -->
+	<jar destfile="${obfuscation.dir}/web.xml.jar" whenempty="fail">
+		<zipfileset dir="${unwar.dir}/WEB-INF" includes="web.xml"/>
+	</jar>
+	<delete file="${unwar.dir}/WEB-INF/web.xml"/>
+
+	<!-- make a fileset of all jars to be obfuscated -->
+	<fileset dir="${obfuscation.dir}" includes="*.jar" id="in-out.set"/>
+
+	<!-- make a fileset of the remaining libraries, these are not obfuscated -->
+	<path id="external.lib.path">
+		<fileset dir="${unwar.dir}/WEB-INF/lib" includes="*.jar"/>
+	</path>
+
+	<taskdef name="yguard"
+		classname="com.yworks.yguard.YGuardTask"
+		classpath="yguard.jar"/>
+
+	<yguard>
+		<inoutpairs>
+			<!-- these filesets are inputs to be obfuscated -->
+			<fileset refid="in-out.set"/>
+		</inoutpairs>
+		<externalclasses refid="external.lib.path"/>  <!-- external libs, not obfuscated -->
+		<rename>
+			<adjust replaceContent="true">
+				<include name="web.xml"/>  <!-- modified to reference the obfuscated Servlet -->
+				<include name="com/datavail/bimonitor/BIMonitorServlet"/>
+      		</adjust>
+			<keep>
+				<!-- classes, packages, methods, and fields which should not obfuscated are specified here -->
+				<!-- Preventing the below class and methods from obfuscation -->
+				
+			</keep>
+		</rename>
+	</yguard>
+
+	<!-- move our newly obfuscated classes back into the lib area -->
+	<move todir="${unwar.dir}/WEB-INF/lib">
+		<fileset dir="${obfuscation.dir}" includes="*_obf.jar"/>
+	</move>
+
+	<!-- unjar the adjusted web.xml --> 
+	<unzip dest="${unwar.dir}/WEB-INF/" src="${unwar.dir}/WEB-INF/lib/web.xml_obf.jar">
+		<patternset includes="web.xml"/>
+	</unzip>
+	<delete>
+		<fileset dir="${unwar.dir}/WEB-INF/lib" includes="web.xml*.jar"/>
+	</delete>
+	
+	<!-- rebuild the war file -->
+	<war destfile="BIMonitor-Web_obf.war" basedir="${unwar.dir}"/>
+	<delete includeEmptyDirs="true">
+		<fileset dir="${unwar.dir}" includes="**"/>
+		<fileset dir="${obfuscation.dir}"/>
+	</delete>
+</project>	
